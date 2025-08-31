@@ -9,7 +9,9 @@ from pydantic import BaseModel
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
-DB_PATH = BASE_DIR / "taste.db"
+# Use a writable location in hosted environments (Render) and fall back locally
+DB_PATH = Path(os.environ.get("DB_PATH", "/tmp/taste.db"))
+
 
 ATTRS = ["sweet","salty","spicy","sour","bitter","umami","creamy","crispy","chewy","greasy","fresh_clean","protein_forward"]
 DISPLAY = {
