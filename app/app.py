@@ -42,13 +42,16 @@ def seed_images_if_empty():
             (u("matcha_parfait.png"), "Matcha Parfait", [0.8,0.05,0.0,0.1,0.35,0.2,0.9,0.2,0.2,0.2,0.7,0.2]),
             (u("birria_tacos.png"), "Birria Tacos", [0.1,0.6,0.7,0.1,0.05,0.8,0.3,0.5,0.3,0.6,0.2,0.6]),
             (u("mapo_tofu.png"), "Mapo Tofu", [0.05,0.55,0.85,0.1,0.05,0.8,0.2,0.1,0.1,0.4,0.2,0.4]),
-            (u("yogurt_granola.png"), "Yogurt & Granola", [0.55,0.05,0.0,0.1,0.05,0.2,0.8,0.2,0.2,0.1,0.8,0.3]),
+            (u("yogurt_granola.png"), "Yogurt & Granola Bowl", [0.55,0.05,0.0,0.1,0.05,0.2,0.8,0.2,0.2,0.1,0.8,0.3]),
             (u("sashimi.png"), "Sashimi Platter", [0.0,0.2,0.0,0.05,0.05,0.6,0.2,0.1,0.3,0.05,0.95,0.9]),
             (u("buffalo_wings.png"), "Buffalo Wings", [0.05,0.6,0.75,0.05,0.05,0.7,0.2,0.6,0.2,0.7,0.15,0.5])
         ]
-        cur.executemany("INSERT INTO images(url,name,attrs) VALUES(?,?,?)", data)
+        # 🔧 convert lists to JSON strings for SQLite TEXT column
+        rows = [(url, name, json.dumps(attrs)) for (url, name, attrs) in data]
+        cur.executemany("INSERT INTO images(url,name,attrs) VALUES(?,?,?)", rows)
         conn.commit()
     conn.close()
+
 
 def load_images():
     conn = db()
