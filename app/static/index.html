@@ -1,1 +1,123 @@
-<h1>Taste Preference Demo</h1>
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Visual Taste Test – Demo</title>
+  <style>
+    :root{ --bg:#0f1115; --card:#161a22; --muted:#8b93a7; --text:#e8ecf4; --accent:#6ea8fe; }
+    body{ background:var(--bg); color:var(--text); font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial; margin:24px; }
+    .wrap{ max-width:1100px; margin:0 auto; }
+    .toolbar{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar input{ background:#0b0e13; color:var(--text); border:1px solid #272c36; border-radius:8px; padding:8px 10px; }
+    button.cta{ padding:10px 14px; border-radius:8px; border:1px solid #30384a; cursor:pointer; background:#0b0e13; color:var(--text); }
+    .row{ display:flex; gap:16px; align-items:stretch; }
+    .card{ flex:1; background:var(--card); border:1px solid #232938; border-radius:12px; overflow:hidden; box-shadow:0 2px 12px rgba(0,0,0,.25); }
+    .card img{ width:100%; height:320px; object-fit:cover; display:block; background:#0b0e13; }
+    .meta{ padding:12px 14px; display:flex; justify-content:space-between; align-items:center; }
+    .err{ color:#ff6b6b; margin:8px 0; min-height:1.2em; }
+    .small{ font-size:12px; color:var(--muted); }
+    .panel{ background:var(--card); border:1px solid #232938; border-radius:12px; padding:16px; margin-top:16px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Visual Taste Test – Demo</h1>
+  <div class="toolbar">
+    <label>User: <input id="uid" size="16" value="demo_user" /></label>
+    <button class="cta" onclick="testApi()">Test API</button>
+    <button class="cta" onclick="loadPair()">Start / Next</button>
+    <span id="status" class="small"></span>
+  </div>
+
+  <div id="error" class="err"></div>
+
+  <div id="pair" class="row" style="display:none"></div>
+
+  <div id="log" class="panel">
+    <div><b>Clicks:</b> <span id="clicks">0</span></div>
+    <div class="small">This simple demo uses only <code>/next</code> and <code>/click</code>. (Health: <code>/health</code>, Images: <code>/images</code>)</div>
+  </div>
+</div>
+
+<script>
+let lastPair = null;
+let totalClicks = 0;
+
+function setError(msg){ document.getElementById('error').textContent = msg || ''; }
+function setStatus(msg){ document.getElementById('status').textContent = msg || ''; }
+
+async function testApi(){
+  setError('');
+  try{
+    const h = await fetch('/health'); const hj = await h.json();
+    const ii = await fetch('/images'); const ij = await ii.json();
+    setStatus(`API OK (attrs=${hj.attrs}, images=${ij.count})`);
+  }catch(e){
+    setError('API test failed. Check server logs.');
+  }
+}
+
+function placeholder(text){
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='800' height='600'>
+    <rect width='100%' height='100%' fill='#0b0e13'/>
+    <text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-size='28' fill='#8b93a7'>${text}</text>
+  </svg>`;
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+
+async function loadPair(){
+  setError('');
+  const uid = document.getElementById('uid').value;
+  try{
+    const res = await fetch(`/next?user_id=${encodeURIComponent(uid)}`);
+    if(!res.ok) throw new Error('next failed');
+    const data = await res.json();
+    lastPair = data;
+    const pair = document.getElementById('pair');
+    pair.style.display='flex';
+    pair.innerHTML = `
+      <div class="card">
+        <img id="leftImg" src="${data.left_url}" alt="${data.left_name}">
+        <div class="meta">
+          <div>${data.left_name}</div>
+          <button class="cta" onclick="choose('left')">Choose</button>
+        </div>
+      </div>
+      <div class="card">
+        <img id="rightImg" src="${data.right_url}" alt="${data.right_name}">
+        <div class="meta">
+          <div>${data.right_name}</div>
+          <button class="cta" onclick="choose('right')">Choose</button>
+        </div>
+      </div>`;
+    const li = document.getElementById('leftImg'); const ri = document.getElementById('rightImg');
+    li.onerror = ()=>{ li.src = placeholder(data.left_name); };
+    ri.onerror = ()=>{ ri.src = placeholder(data.right_name); };
+  }catch(e){
+    setError('Could not load an image pair.');
+  }
+}
+
+async function choose(which){
+  setError('');
+  if(!lastPair) return;
+  const uid = document.getElementById('uid').value;
+  try{
+    await fetch('/click', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ user_id: uid, left_id: lastPair.left_id, right_id: lastPair.right_id, choice: which })
+    });
+    totalClicks += 1;
+    document.getElementById('clicks').textContent = totalClicks;
+    await loadPair();
+  }catch(e){
+    setError('Failed to record click.');
+  }
+}
+
+// Auto-test health on load
+testApi();
+</script>
+</body>
+</html>
