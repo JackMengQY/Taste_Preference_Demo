@@ -77,7 +77,15 @@ def load_responses(uid: str):
     conn.close()
     return [{"left": r["left_image_id"], "right": r["right_image_id"], "choice": r["choice"]} for r in rows]
 
-def sigmoid(z): return 1.0/(1.0+math.exp(-z))
+# BEFORE
+# def sigmoid(z): return 1.0/(1.0+math.exp(-z))
+
+# AFTER
+import numpy as np  # (already imported above)
+def sigmoid(z):
+    z = np.asarray(z, dtype=float)
+    return 1.0 / (1.0 + np.exp(-z))
+
 
 def train_user_w(uid: str, images: List[Dict[str,Any]], lr=0.5, l2=0.01, epochs=250):
     idx = {im["id"]: im for im in images}
