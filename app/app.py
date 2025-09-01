@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.staticfiles import StaticFiles
 
-# ---- storage: use /tmp on Render (writable) ----
+# Writable DB path for Render
 DB_PATH = Path(os.environ.get("DB_PATH", "/tmp/taste.db"))
 
 ATTRS = ["sweet","salty","spicy","sour","bitter","umami","creamy","crispy","chewy","greasy","fresh_clean","protein_forward"]
@@ -55,8 +55,7 @@ def seed_images_if_empty():
             (u("sashimi.png"), "Sashimi Platter", [0.0,0.2,0.0,0.05,0.05,0.6,0.2,0.1,0.3,0.05,0.95,0.9]),
             (u("buffalo_wings.png"), "Buffalo Wings", [0.05,0.6,0.75,0.05,0.05,0.7,0.2,0.6,0.2,0.7,0.15,0.5])
         ]
-        # IMPORTANT: store attrs as JSON text for SQLite
-        rows = [(url, name, json.dumps(attrs)) for (url, name, attrs) in data]
+        rows = [(url, name, json.dumps(attrs)) for (url, name, attrs) in data]  # JSON text
         cur.executemany("INSERT INTO images(url,name,attrs) VALUES(?,?,?)", rows)
         conn.commit()
     conn.close()
@@ -66,8 +65,7 @@ def load_images():
     rows = conn.execute("SELECT id,url,name,attrs FROM images").fetchall()
     conn.close()
     return [
-        {"id": r["id"], "url": r["url"], "name": r["name"],
-         "x": np.array(json.loads(r["attrs"]), dtype=float)}
+        {"id": r["id"], "url": r["url"], "name": r["name"], "x": np.array(json.loads(r["attrs"]), dtype=float)}
         for r in rows
     ]
 
@@ -100,12 +98,16 @@ def train_user_w(uid: str, images: List[Dict[str,Any]], lr=0.5, l2=0.01, epochs=
         b -= lr * float(np.mean(p - y))
     return w, b
 
-# -------- FastAPI setup --------
+# ---------- App ----------
 init_db()
 seed_images_if_empty()
 
-app = FastAPI(title="Taste Demo", version="0.4.0")
+app = FastAPI(title="Taste Demo", version="0.4.1")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# --- tiny attrs endpoint (optional for UI) ---
+@app.get("/attrs")
+def get_attrs(): return {"attributes": ATTRS, "display": DISPLAY}
 
 @app.get("/health")
 def health(): return {"ok": True, "attrs": len(ATTRS)}
@@ -125,9 +127,7 @@ def next_pair(user_id: str = Query(...)):
     ims = load_images()
     if len(ims) < 2:
         raise HTTPException(400, "Not enough images.")
-    # Train on current data (if any)
     w, b = train_user_w(user_id, ims)
-    # Try to pick an uncertain pair; fall back safely
     best = None; best_unc = 999.0
     for _ in range(120):
         L, R = random.sample(ims, 2)
@@ -161,7 +161,7 @@ def record_click(payload: ClickPayload):
     conn.commit(); conn.close()
     return {"ok": True}
 
-# ---------- PROFILE ENDPOINTS ----------
+# ---------- Profile/report ----------
 def bucketize(attrs, w):
     absw = np.abs(w); mag = float(np.linalg.norm(w) + 1e-9)
     rel = absw / mag if mag > 0 else np.zeros_like(absw)
@@ -190,25 +190,27 @@ def persona_from_profile(strong):
 
 @app.get("/profile")
 def get_profile(user_id: str = Query(...)):
-    images = load_images()
-    w, b = train_user_w(user_id, images, lr=0.5, l2=0.01, epochs=300)
-    R = load_responses(user_id)
-    n = len(R)
+    imgs = load_images()
+    w, b = train_user_w(user_id, imgs, lr=0.5, l2=0.01, epochs=300)
+    R = load_responses(user_id); n = len(R)
     mag = float(np.linalg.norm(w)+1e-9)
     rel = (np.abs(w) / mag).tolist() if mag > 0 else [0.0]*len(ATTRS)
-    return {"user_id": user_id, "attrs": ATTRS, "w": w.tolist(), "bias": b, "n_responses": n, "relative_importance": rel}
+    return {"user_id": user_id, "attrs": ATTRS, "display": DISPLAY,
+            "w": [float(v) for v in w.tolist()], "bias": float(b),
+            "n_responses": n, "relative_importance": rel}
 
 @app.get("/profile_readable")
 def profile_readable(user_id: str = Query(...)):
-    images = load_images()
-    w, _ = train_user_w(user_id, images, lr=0.5, l2=0.01, epochs=300)
+    imgs = load_images()
+    w, _ = train_user_w(user_id, imgs, lr=0.5, l2=0.01, epochs=300)
     R = load_responses(user_id)
     strong, moderate, low, rel = bucketize(ATTRS, w)
     title, blurbs = persona_from_profile(strong)
-    return {"user_id": user_id, "n_responses": len(R), "persona_title": title, "persona_blurbs": blurbs,
-            "strong": strong, "moderate": moderate, "low": low, "attrs_display": DISPLAY}
+    return {"user_id": user_id, "n_responses": len(R), "persona_title": title,
+            "persona_blurbs": blurbs, "strong": strong, "moderate": moderate, "low": low,
+            "attrs_display": DISPLAY}
 
-# ---------- STATIC MOUNTS (AFTER routes) ----------
+# ---------- Static mounts at the very end ----------
 BASE_DIR = Path(__file__).parent
 app.mount("/img", StaticFiles(directory=BASE_DIR / "static" / "img"), name="img")
 app.mount("/", StaticFiles(directory=BASE_DIR / "static", html=True), name="static")
