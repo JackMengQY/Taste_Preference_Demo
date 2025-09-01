@@ -18,6 +18,10 @@
     .err{ color:#ff6b6b; margin:8px 0; min-height:1.2em; }
     .small{ font-size:12px; color:var(--muted); }
     .panel{ background:var(--card); border:1px solid #232938; border-radius:12px; padding:16px; margin-top:16px; }
+    .bars{ display:grid; grid-template-columns: 200px 1fr; gap:8px 16px; align-items:center; }
+    .bar{ height:12px; background:#0b0e13; border:1px solid #2a3142; border-radius:999px; overflow:hidden; }
+    .bar > span{ display:block; height:100%; background: linear-gradient(90deg, var(--accent), #9c7bff); width:0%; }
+    .pill{ display:inline-block; padding:6px 10px; border:1px solid #2a3142; border-radius:999px; margin:5px 6px 0 0; font-size:12px; color: var(--muted); }
   </style>
 </head>
 <body>
@@ -27,6 +31,8 @@
     <label>User: <input id="uid" size="16" value="demo_user" /></label>
     <button class="cta" onclick="testApi()">Test API</button>
     <button class="cta" onclick="loadPair()">Start / Next</button>
+    <button class="cta" onclick="loadProfile()">Get Profile</button>
+    <button class="cta" onclick="generateReport()">Generate Report</button>
     <span id="status" class="small"></span>
   </div>
 
@@ -34,15 +40,13 @@
 
   <div id="pair" class="row" style="display:none"></div>
 
-  <div id="log" class="panel">
-    <div><b>Clicks:</b> <span id="clicks">0</span></div>
-    <div class="small">This simple demo uses only <code>/next</code> and <code>/click</code>. (Health: <code>/health</code>, Images: <code>/images</code>)</div>
-  </div>
+  <div id="profile" class="panel" style="display:none"></div>
+
+  <div id="report" class="panel" style="display:none"></div>
 </div>
 
 <script>
 let lastPair = null;
-let totalClicks = 0;
 
 function setError(msg){ document.getElementById('error').textContent = msg || ''; }
 function setStatus(msg){ document.getElementById('status').textContent = msg || ''; }
@@ -54,7 +58,7 @@ async function testApi(){
     const ii = await fetch('/images'); const ij = await ii.json();
     setStatus(`API OK (attrs=${hj.attrs}, images=${ij.count})`);
   }catch(e){
-    setError('API test failed. Check server logs.');
+    setError('API test failed.');
   }
 }
 
@@ -108,15 +112,80 @@ async function choose(which){
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ user_id: uid, left_id: lastPair.left_id, right_id: lastPair.right_id, choice: which })
     });
-    totalClicks += 1;
-    document.getElementById('clicks').textContent = totalClicks;
     await loadPair();
+    await loadProfile();
   }catch(e){
     setError('Failed to record click.');
   }
 }
 
-// Auto-test health on load
+function renderBars(container, attrs, w, rel, displayMap){
+  const bars = document.createElement('div'); bars.className='bars';
+  attrs.forEach((a,i)=>{
+    const label = displayMap[a] || a;
+    const rowLabel = document.createElement('div');
+    rowLabel.innerHTML = `${label}`;
+    const bar = document.createElement('div'); bar.className='bar';
+    const span = document.createElement('span');
+    const pct = Math.min(100, Math.max(0, Math.round((rel && rel[i] ? rel[i] : Math.abs(w[i]))*100)));
+    span.style.width = pct + '%';
+    bar.appendChild(span);
+    bars.appendChild(rowLabel); bars.appendChild(bar);
+  });
+  container.appendChild(bars);
+}
+
+async function loadProfile(){
+  setError('');
+  const uid = document.getElementById('uid').value;
+  try{
+    const res = await fetch(`/profile?user_id=${encodeURIComponent(uid)}`);
+    if(!res.ok) throw new Error('profile');
+    const data = await res.json();
+    const res2 = await fetch(`/attrs`); // optional; we know DISPLAY on server
+    const display = await res2.json().catch(()=>({display:{}}));
+    const div = document.getElementById('profile');
+    div.style.display = 'block';
+    div.innerHTML = `<h3>Profile for <code>${data.user_id}</code> <span class="small">(n=${data.n_responses})</span></h3>
+      <div class="small">Bars show relative importance learned from your clicks.</div>`;
+    renderBars(div, data.attrs, data.w, data.relative_importance, (display && display.display) || {});
+  }catch(e){
+    setError('Could not load profile.');
+  }
+}
+
+function badge(text){ return `<span class="pill">${text}</span>`; }
+
+async function generateReport(){
+  setError('');
+  const uid = document.getElementById('uid').value;
+  try{
+    const pr = await fetch(`/profile_readable?user_id=${encodeURIComponent(uid)}`);
+    if(!pr.ok) throw new Error('readable');
+    const prof = await pr.json();
+    const box = document.getElementById('report');
+    box.style.display='block';
+    const strong = prof.strong.map(e=>badge(e.label)).join(' ');
+    const moderate = prof.moderate.map(e=>badge(e.label)).join(' ');
+    const low = prof.low.map(e=>badge(e.label)).join(' ');
+    const blurbs = prof.persona_blurbs.map(b=>badge(b)).join(' ');
+    box.innerHTML = `
+      <h2>${prof.persona_title}</h2>
+      <div class="small">Based on your ${prof.n_responses} choices</div>
+      <div style="margin:8px 0 12px;">${blurbs}</div>
+      <h3>Strong Preferences</h3>
+      <div>${strong || badge('Learning… make a few more choices')}</div>
+      <h3>Moderate Preferences</h3>
+      <div>${moderate || badge('Still calibrating')}</div>
+      <h3>Lower Priority</h3>
+      <div>${low || badge('Not enough data yet')}</div>
+    `;
+  }catch(e){
+    setError('Could not generate report.');
+  }
+}
+
+// Auto-test on load
 testApi();
 </script>
 </body>
